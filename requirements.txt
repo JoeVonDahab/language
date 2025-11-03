@@ -1,0 +1,13 @@
+# Optional dependencies for audio pronunciation
+# Install with: pip install -r requirements.txt
+
+# Option 1: Offline TTS (recommended for most users)
+pyttsx3
+
+# Option 2: Google Text-to-Speech (requires internet, high quality)
+gTTS
+
+# Additional system dependencies:
+# Linux: sudo apt-get install espeak espeak-data libespeak-dev mpg123
+# macOS: Built-in 'say' command (no installation needed)
+# Windows: Built-in PowerShell TTS (no installation needed)

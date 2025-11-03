@@ -1,8 +1,28 @@
 #!/usr/bin/env python3
 """
 Egyptian Hieroglyph Converter
-Converts English text to Egyptian hieroglyphs with pronunciation guide
+Converts English text to Egyptian hieroglyphs with audio pronunciation
 """
+
+import sys
+import os
+import platform
+import subprocess
+import tempfile
+from pathlib import Path
+
+# Try to import TTS libraries (optional)
+try:
+    import pyttsx3
+    HAS_PYTTSX3 = True
+except ImportError:
+    HAS_PYTTSX3 = False
+
+try:
+    from gtts import gTTS
+    HAS_GTTS = True
+except ImportError:
+    HAS_GTTS = False
 
 # Unicode Egyptian Hieroglyph mappings
 # Using phonetic approach - mapping English sounds to hieroglyphs
@@ -76,11 +96,121 @@ PRONUNCIATION_MAP = {
 
 
 class HieroglyphConverter:
-    """Convert English text to Egyptian hieroglyphs"""
+    """Convert English text to Egyptian hieroglyphs with audio pronunciation"""
 
     def __init__(self):
         self.hieroglyph_map = HIEROGLYPH_MAP
         self.pronunciation_map = PRONUNCIATION_MAP
+        self.tts_engine = None
+        self._init_tts()
+
+    def _init_tts(self):
+        """Initialize text-to-speech engine"""
+        if HAS_PYTTSX3:
+            try:
+                self.tts_engine = pyttsx3.init()
+                # Set properties for better pronunciation
+                self.tts_engine.setProperty('rate', 150)  # Speed
+                self.tts_engine.setProperty('volume', 0.9)  # Volume
+            except Exception as e:
+                print(f"Warning: Could not initialize pyttsx3: {e}")
+                self.tts_engine = None
+
+    def _play_audio_system(self, text):
+        """Use system TTS commands as fallback"""
+        system = platform.system()
+
+        try:
+            if system == "Darwin":  # macOS
+                subprocess.run(['say', text], check=True)
+                return True
+            elif system == "Linux":
+                # Try espeak
+                subprocess.run(['espeak', text], check=True,
+                             stderr=subprocess.DEVNULL)
+                return True
+            elif system == "Windows":
+                # Use PowerShell for Windows
+                ps_command = f'Add-Type -AssemblyName System.Speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Speak("{text}")'
+                subprocess.run(['powershell', '-Command', ps_command], check=True)
+                return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+        return False
+
+    def pronounce(self, text, method='auto'):
+        """
+        Pronounce text using text-to-speech
+
+        Args:
+            text: Text to pronounce
+            method: TTS method ('auto', 'pyttsx3', 'gtts', 'system')
+
+        Returns:
+            True if pronunciation succeeded, False otherwise
+        """
+        pronunciation_text = self.text_to_pronunciation(text)
+
+        # Remove hyphens for better TTS pronunciation
+        speech_text = pronunciation_text.replace('-', ' ')
+
+        if method == 'auto':
+            # Try methods in order of preference
+            methods = ['pyttsx3', 'system', 'gtts']
+        else:
+            methods = [method]
+
+        for m in methods:
+            if m == 'pyttsx3' and self.tts_engine:
+                try:
+                    self.tts_engine.say(speech_text)
+                    self.tts_engine.runAndWait()
+                    return True
+                except Exception as e:
+                    print(f"pyttsx3 error: {e}")
+                    continue
+
+            elif m == 'system':
+                if self._play_audio_system(speech_text):
+                    return True
+
+            elif m == 'gtts' and HAS_GTTS:
+                try:
+                    # Create temporary file for audio
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
+                        temp_file = f.name
+
+                    tts = gTTS(text=speech_text, lang='en', slow=False)
+                    tts.save(temp_file)
+
+                    # Play the audio file
+                    system = platform.system()
+                    if system == "Darwin":
+                        subprocess.run(['afplay', temp_file], check=True)
+                    elif system == "Linux":
+                        for player in ['mpg123', 'mpg321', 'play', 'ffplay']:
+                            try:
+                                subprocess.run([player, temp_file], check=True,
+                                             stderr=subprocess.DEVNULL)
+                                break
+                            except (subprocess.CalledProcessError, FileNotFoundError):
+                                continue
+                    elif system == "Windows":
+                        os.startfile(temp_file)
+
+                    # Clean up
+                    try:
+                        os.unlink(temp_file)
+                    except:
+                        pass
+
+                    return True
+                except Exception as e:
+                    print(f"gTTS error: {e}")
+                    continue
+
+        return False
 
     def text_to_hieroglyphs(self, text):
         """Convert English text to hieroglyphs"""
@@ -158,7 +288,7 @@ class HieroglyphConverter:
             'pronunciation': pronunciation
         }
 
-    def print_conversion(self, text):
+    def print_conversion(self, text, play_audio=True):
         """Print formatted conversion output"""
         result = self.convert(text)
 
@@ -171,26 +301,45 @@ class HieroglyphConverter:
         print(f"  {result['hieroglyphs']}")
         print(f"\nPronunciation Guide:")
         print(f"  {result['pronunciation']}")
+
+        if play_audio:
+            print(f"\n🔊 Playing pronunciation...")
+            success = self.pronounce(text)
+            if not success:
+                print("⚠️  Audio not available. Install dependencies:")
+                print("   pip install pyttsx3")
+                print("   or: pip install gTTS")
+                print("   or: install espeak (Linux)")
+
         print("\n" + "="*60 + "\n")
 
 
 def main():
     """Main CLI interface"""
-    import sys
-
     converter = HieroglyphConverter()
 
-    if len(sys.argv) > 1:
+    # Parse command line arguments
+    args = sys.argv[1:]
+    silent = '--silent' in args or '--no-audio' in args
+    if silent:
+        args = [a for a in args if a not in ['--silent', '--no-audio']]
+
+    if args:
         # Convert text from command line arguments
-        text = ' '.join(sys.argv[1:])
-        converter.print_conversion(text)
+        text = ' '.join(args)
+        converter.print_conversion(text, play_audio=not silent)
     else:
         # Interactive mode
         print("\n" + "="*60)
-        print("EGYPTIAN HIEROGLYPH CONVERTER")
+        print("EGYPTIAN HIEROGLYPH CONVERTER WITH AUDIO 🔊")
         print("="*60)
         print("\nConvert English text to Egyptian hieroglyphs!")
-        print("Type 'quit' or 'exit' to stop.\n")
+        print("Commands:")
+        print("  - Type any text to convert and hear pronunciation")
+        print("  - Type 'silent' to toggle audio on/off")
+        print("  - Type 'quit' or 'exit' to stop\n")
+
+        audio_enabled = True
 
         while True:
             try:
@@ -200,10 +349,16 @@ def main():
                     print("\nGoodbye! 𓋹𓈖𓆑𓂋𓊪\n")
                     break
 
+                if text.lower() == 'silent':
+                    audio_enabled = not audio_enabled
+                    status = "enabled" if audio_enabled else "disabled"
+                    print(f"\n🔊 Audio pronunciation {status}\n")
+                    continue
+
                 if not text:
                     continue
 
-                converter.print_conversion(text)
+                converter.print_conversion(text, play_audio=audio_enabled)
 
             except KeyboardInterrupt:
                 print("\n\nGoodbye! 𓋹𓈖𓆑𓂋𓊪\n")

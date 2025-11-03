@@ -17,7 +17,7 @@ A Python tool that converts English text to Egyptian hieroglyphs with **REAL AUD
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/JoeVonDahab/language.git
 cd language
 
 # Make the script executable (optional)
